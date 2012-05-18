@@ -1,7 +1,8 @@
 require 'sinatra'
 require 'active_support'
-require 'active_record'
+require 'mongo_mapper'
 require 'delayed_job'
+require 'delayed_job_mongo_mapper'
 require 'haml'
 
 class DelayedJobWeb < Sinatra::Base
@@ -66,7 +67,7 @@ class DelayedJobWeb < Sinatra::Base
 
   %w(enqueued working pending failed).each do |page|
     get "/#{page}" do
-      @jobs = delayed_jobs(page.to_sym).order('created_at desc, id desc').offset(start).limit(per_page)
+      @jobs = delayed_jobs(page.to_sym).sort([[:created_at, -1], [:id, -1]]).offset(start).limit(per_page)
       @all_jobs = delayed_jobs(page.to_sym)
       haml page.to_sym
     end
@@ -84,7 +85,7 @@ class DelayedJobWeb < Sinatra::Base
   end
 
   post "/failed/clear" do
-    delayed_job.destroy_all(delayed_job_sql(:failed))
+    delayed_job.where(delayed_job_query(:failed)).destroy_all
     redirect u('failed')
   end
 
@@ -94,19 +95,19 @@ class DelayedJobWeb < Sinatra::Base
   end
 
   def delayed_jobs(type)
-    delayed_job.where(delayed_job_sql(type))
+    delayed_job.where(delayed_job_query(type))
   end
 
-  def delayed_job_sql(type)
+  def delayed_job_query(type)
     case type
     when :enqueued
       ''
     when :working
-      'locked_at is not null'
+      { :locked_at.ne => nil }
     when :failed
-      'last_error is not null'
+      { :last_error.ne => nil }
     when :pending
-      'attempts = 0'
+      { :attempts => 0 }
     end
   end
 
